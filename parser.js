@@ -174,6 +174,10 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 
 		var tokenOrNode = token
 
+		var currNonterminalRules = stateRules.filter(function(rule) {
+			return Array.isArray(rule.tokens[index])
+		})
+
 		// Filter out rules with tokenOrNode
 		while (true) {
 			//-- Handle state pushing/popping first of all ----------
@@ -183,8 +187,8 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 					return tokenOrNode
 				} else if (!mayPopState && stateRules.length > 1) {
 					debugLog(3, "Potential longer rule [w/ state stack]")
-					inPotentialRuleState  = true
 					mayPopState           = true
+					inPotentialRuleState  = true
 					// FIXME: Hacky solution. Create a fake grammar rule to
 					// trick the backtracking part into doing the right thing.
 					//   The 'null' token is important to tell the backtracking
@@ -202,6 +206,15 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 					mayPopState = false
 					debugLog(1, "<<< ", oldContext, "->", context)
 				}
+
+			} else if (currNonterminalRules.length == 1 && index > 0
+					&& stateRules.length > 1
+					&& Array.isArray(currNonterminalRules[0].tokens[index])) {
+			//	mayPopState           = true
+				inPotentialRuleState  = true
+				potentialRuleStateTip = currNonterminalRules[0]
+				//potentialRuleStateTip = { tokens: [ null ] }
+
 			} else if (stateRules.length == 1 && index > 0
 					&& Array.isArray(stateRules[0].tokens[index])
 					&& (stateRules[0].tokens[index] in this.rules)) {
@@ -265,6 +278,12 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 
 				inPotentialRuleState = false
 				var rule = potentialRuleStateTip
+
+				// FIXME: More ugly state backtracking semi-ugly stuff.
+				if (rule.tokens.length > nodeStack.length) {
+					stateRules = [ rule ]
+					continue
+				}
 
 				nodeStack.push(tokenOrNode)
 

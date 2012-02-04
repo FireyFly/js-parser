@@ -37,7 +37,7 @@ function parseRuleFile(filename, callback) {
 	require('fs').readFile(filename, function(err, content) {
 		if (err) throw err
 
-		var lines = content.toString().split("\n").map(trim)
+		var lines = content.toString().split("\n")
 		  , state = '$top'
 		  , match
 
@@ -57,14 +57,15 @@ function parseRuleFile(filename, callback) {
 		}
 
 		for (var i=0; i<lines.length; i++) {
-			var line = lines[i]
+			var lineRaw = lines[i]
+			  , line    = lineRaw.trim()
 
 			if (match = line.match(/^\[(.*)\]$/)) {
 				state = match[1].toLowerCase()
 			} else if (state == 'grammar') {
 				if (match = line.match(/([^:]+)\s*::=/)) {
 					var start = i
-					for (++i; lines[i].match(/^\|/) && i < lines.length; i++);
+					for (++i; lines[i].match(/^\s*\|/) && i < lines.length; i++);
 					var end = i
 
 					match = lines.slice(start, end).join(" ").split(/::=/)
@@ -89,7 +90,7 @@ function parseRuleFile(filename, callback) {
 					checkNonComment(line)
 				}
 			} else if (state == 'input') {
-				input.push(line)
+				input.push(lineRaw)
 			} else if (state == 'options') {
 				if (match = line.match(/^(.*)[=:](.*)$/)) {
 					var name  = match[1].trim()
