@@ -1,0 +1,13 @@
+
+[Grammar]
+$top    ::= expr-1 $eof
+expr-1  ::= expr-1 "+" expr-1
+          | expr-1 "-" expr-1
+          | *expr-2
+expr-2  ::= expr-2 "*" expr-2
+          | expr-2 "/" expr-2
+          | "(" expr-1 ")"
+          | *number
+
+[Input]
+2 * (4 + 1)

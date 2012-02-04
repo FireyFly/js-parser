@@ -4,7 +4,7 @@ var VERBOSITY = 1 //10
 function debugLog(verbosity/*, ...message*/) {
 	if (VERBOSITY < verbosity) { return }
 	var prefix = "[" + Array(verbosity+1).join("*")
-			+ Array(7 - verbosity).join(" ") + "]"
+			+ Array(8 - verbosity).join(" ") + "]"
 	console.log.apply(console, [prefix].concat(
 			Array.prototype.slice.call(arguments, 1)))
 }
@@ -131,6 +131,7 @@ function createNode(rule, tokens) {
 	if (rule.tokens.length == 1 && Array.isArray(rule.tokens[0])
 			&& rule.tokens[0][1] == '*' && children[0].children) {
 		// '*' syntax: promote child node instead.
+		debugLog(6, "Promoting " + children[0].name + " to " + rule.name)
 		var res = children[0]
 		res.name = rule.name
 		return res
@@ -143,7 +144,7 @@ function createNode(rule, tokens) {
 		terminals : terminals,
 
 		toString: function() {
-			return "{" + rule.name + ": " + this.children.join(" ") + "}"
+			return "{" + this.name + ": " + this.children.join(" ") + "}"
 		}
 	}
 }
@@ -176,6 +177,7 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 		// Filter out rules with tokenOrNode
 		while (true) {
 			//-- Handle state pushing/popping first of all ----------
+			debugLog(6, "Time to pop?", tokenOrNode.name, "==", context, "?")
 			if (tokenOrNode.name == context) {
 				if (context == '$top') {
 					// FIXME: Semi-hacky?

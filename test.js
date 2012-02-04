@@ -31,8 +31,106 @@ lexer.add("whitespace",  isWhitespace, isWhitespace, true)
 lexer.add("operator", function() {return true}, function() {return false})
 
 
+function parseRuleFile(filename, callback) {
+	function trim(str) { return str.trim() }
+
+	require('fs').readFile(filename, function(err, content) {
+		if (err) throw err
+
+		var lines = content.toString().split("\n").map(trim)
+		  , state = '$top'
+		  , match
+
+		var rulemap = {}
+		var input   = []
+
+		for (var i=0; i<lines.length; i++) {
+			var line = lines[i]
+
+			if (match = line.match(/^\[(.*)\]$/)) {
+				state = match[1].toLowerCase()
+			} else if (state == 'grammar') {
+				if (match = line.match(/([^:]+)\s*::=/)) {
+					var start = i
+					for (++i; lines[i].match(/^\|/) && i < lines.length; i++);
+					var end = i
+
+					console.log(start, end)
+					match = lines.slice(start, end).join(" ").split(/::=/)
+					var name = match[0].trim()
+					  , rules = match[1].split(/\|/).map(trim)
+					console.log("Result:", name, rules)
+
+					rules = rules.map(function(strRule) {
+						return strRule.split(/\s+/).map(function(rtoken) {
+							if (match = rtoken.match(/^(\*?)([^"]+)$/)) {
+								return match[1] ? [match[2], "*"] : [match[2]]
+							} else if (match = rtoken.match(/^"([^"]+)"$/)) {
+								return match[1]
+							} else {
+								throw new Error("Invalid rtoken: " + rtoken)
+							}
+						})
+					})
+
+					rulemap[name] = rules
+					--i
+				} else if (line.match(/^(?:#.*)?$/)) {
+					// Ignore empty lines or "comments"
+				} else {
+					throw new Error("Invalid line in grammar section: '"
+							+ line + "'")
+				}
+			} else if (state == 'input') {
+				input.push(line)
+			}
+		}
+
+		console.log("Rulemap", rulemap)
+
+		var res = new parser.Parser()
+		for (var name in rulemap) {
+			res.add.apply(res, [name].concat(rulemap[name]))
+		}
+		res.prepare()
+
+		callback(null, res, input.join("\n"))
+	})
+}
+
 // Parser
-var parser = new parser.Parser()
+//var parser = new parser.Parser()
+parseRuleFile('scriptlang.rule', function(err, parser, input) {
+	if (err) throw err
+
+	function pad(str, n, rightpad) {
+		var pad = Array(Math.abs(n - ("" + str).length + 1)).join(" ")
+		return rightpad ? str + pad : pad + str
+	}
+
+	var tokens = lexer.tokenize(input)
+
+	var res = parser.parse({
+		next : tokens.shift.bind(tokens),
+		undo : tokens.unshift.bind(tokens)
+	}, 6)
+
+	console.log("Parser:")
+	function printTree(indent, node) {
+		if (node.type == 'token') {
+			console.log(indent + node)
+		} else {
+			var pretty = node.terminals.map(function(x) {return x.value}).join(" ")
+			console.log(indent + node.name + ": " + pretty)
+		}
+
+		if (node.children) {
+			node.children.forEach(printTree.bind(null, indent + "  "))
+		}
+	}
+
+	printTree("", res)
+})
 
 /*  // Simple math grammar: + - * / () numbers
 parser.add('$top'    , [ ['expr-1'], ['$eof']                      ])
@@ -72,15 +170,17 @@ parser.add('expr-2'
 	, [ ['number', '*']                                            ])
 //*/
 
-parser.prepare()
+//parser.prepare()
 
 //-- Try it out -----------------------------------------------------
+/*
 function pad(str, n, rightpad) {
 	var pad = Array(Math.abs(n - ("" + str).length + 1)).join(" ")
 	return rightpad ? str + pad : pad + str
 }
 
 var tokens = lexer.tokenize("(1 + 3)")
+*/
 /*
 var tokens = lexer.tokenize([
 	"function foo(x) { 1 + 2 }",
@@ -90,6 +190,7 @@ var tokens = lexer.tokenize([
 //*/
 
 // Lexer output
+/*
 console.log("Lexer:")
 tokens.forEach(function(token) {
 	if (!token.ignore) {
@@ -125,8 +226,10 @@ for (var key in parser.subruleMap) {
 }
 
 console.log()
+*/
 
 // Parser parsing output
+/*
 console.log("Parsing output:")
 var res = parser.parse({
 	next : tokens.shift.bind(tokens),
@@ -134,8 +237,10 @@ var res = parser.parse({
 }, 6)
 
 console.log()
+*/
 
 // Parser result
+/*
 console.log("Parser:")
 function printTree(indent, node) {
 	if (node.type == 'token') {
@@ -151,4 +256,4 @@ function printTree(indent, node) {
 }
 
 printTree("", res)
-
+*/
