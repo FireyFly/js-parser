@@ -43,6 +43,18 @@ function parseRuleFile(filename, callback) {
 
 		var rulemap = {}
 		var input   = []
+		var options = {
+			verbosity : 0
+		}
+
+		function checkNonComment(line) {
+			if (line.match(/^(?:#.*)?$/)) {
+				// Ignore empty lines or "comments"
+			} else {
+				throw new Error("Invalid line in " + state + " section: '"
+						+ line + "'")
+			}
+		}
 
 		for (var i=0; i<lines.length; i++) {
 			var line = lines[i]
@@ -55,11 +67,9 @@ function parseRuleFile(filename, callback) {
 					for (++i; lines[i].match(/^\|/) && i < lines.length; i++);
 					var end = i
 
-					console.log(start, end)
 					match = lines.slice(start, end).join(" ").split(/::=/)
 					var name = match[0].trim()
 					  , rules = match[1].split(/\|/).map(trim)
-					console.log("Result:", name, rules)
 
 					rules = rules.map(function(strRule) {
 						return strRule.split(/\s+/).map(function(rtoken) {
@@ -75,18 +85,22 @@ function parseRuleFile(filename, callback) {
 
 					rulemap[name] = rules
 					--i
-				} else if (line.match(/^(?:#.*)?$/)) {
-					// Ignore empty lines or "comments"
 				} else {
-					throw new Error("Invalid line in grammar section: '"
-							+ line + "'")
+					checkNonComment(line)
 				}
 			} else if (state == 'input') {
 				input.push(line)
+			} else if (state == 'options') {
+				if (match = line.match(/^(.*)[=:](.*)$/)) {
+					var name  = match[1].trim()
+					  , value = match[2].trim()
+
+					options[name] = value
+				} else {
+					checkNonComment(line)
+				}
 			}
 		}
-
-		console.log("Rulemap", rulemap)
 
 		var res = new parser.Parser()
 		for (var name in rulemap) {
@@ -94,13 +108,19 @@ function parseRuleFile(filename, callback) {
 		}
 		res.prepare()
 
-		callback(null, res, input.join("\n"))
+		options.input = input.join("\n")
+		callback(null, res, options)
 	})
 }
 
 // Parser
 //var parser = new parser.Parser()
-parseRuleFile('scriptlang.rule', function(err, parser, input) {
+if (process.argv.length != 3) {
+	console.log("  Usage: " + process.argv.slice(0, 2).join(" ") + " <rulefile>")
+	process.exit(1)
+}
+
+parseRuleFile(process.argv[2], function(err, parser, options) {
 	if (err) throw err
 
 	function pad(str, n, rightpad) {
@@ -108,14 +128,20 @@ parseRuleFile('scriptlang.rule', function(err, parser, input) {
 		return rightpad ? str + pad : pad + str
 	}
 
-	var tokens = lexer.tokenize(input)
+	var tokens = lexer.tokenize(options.input)
+
+	console.log()
+	console.log("## Input: ##########################################")
+	console.log(options.input.trim())
 
 	var res = parser.parse({
 		next : tokens.shift.bind(tokens),
 		undo : tokens.unshift.bind(tokens)
-	}, 6)
+	}, options.verbosity)
 
-	console.log("Parser:")
+	console.log()
+	console.log("## Parser: #########################################")
+
 	function printTree(indent, node) {
 		if (node.type == 'token') {
 			console.log(indent + node)

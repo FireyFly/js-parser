@@ -1,10 +1,10 @@
 
 // Debugging
-var VERBOSITY = 1 //10
+var VERBOSITY = 0 //10
 function debugLog(verbosity/*, ...message*/) {
 	if (VERBOSITY < verbosity) { return }
 	var prefix = "[" + Array(verbosity+1).join("*")
-			+ Array(8 - verbosity).join(" ") + "]"
+			+ Array(VERBOSITY - verbosity + 1).join(" ") + "]"
 	console.log.apply(console, [prefix].concat(
 			Array.prototype.slice.call(arguments, 1)))
 }
@@ -151,7 +151,7 @@ function createNode(rule, tokens) {
 
 // Parser#parse -- parses a token stream into a parse tree.
 Parser.prototype.parse = function(tokenStream, verbosity) {
-	VERBOSITY = (verbosity || 1)
+	VERBOSITY = (verbosity || 0)
 
 	var token
 	  , nodeStack  = []
@@ -184,8 +184,15 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 					return tokenOrNode
 				} else if (!mayPopState && stateRules.length > 1) {
 					debugLog(3, "Potential rule state w/ state stack")
-					inPotentialRuleState = true
-					mayPopState          = true
+					inPotentialRuleState  = true
+					mayPopState           = true
+					// FIXME: Hacky solution. Create a fake grammar rule to
+					// trick the backtracking part into doing the right thing.
+					potentialRuleStateTip = {
+						name   : context,
+						tokens : [ [context, "*"] ]
+					}
+				//	nodeStack.push(tokenOrNode)
 				} else {
 					var oldContext = context
 					var newState = stateStack.pop()
@@ -196,7 +203,7 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 					  , nodeStack  = newState[3]
 
 					mayPopState = false
-					debugLog(3, "Popping the state stack:", oldContext, "->", context)
+					debugLog(1, "<<< ", oldContext, "->", context)
 				}
 			} else if (stateRules.length == 1 && index > 0
 					&& Array.isArray(stateRules[0].tokens[index])
@@ -212,7 +219,7 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 				index      = 0
 				stateRules = this.subruleMap[context]
 
-				debugLog(3, "Pushing the state stack:", context)
+				debugLog(1, ">>> ", context)
 			}
 			//-- State push/pop end ---------------------------------
 
@@ -261,11 +268,22 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 
 				inPotentialRuleState = false
 				var rule = potentialRuleStateTip
-				tokenStream.undo(token)
 
+				nodeStack.push(tokenOrNode)
+
+				// FIXME: due to state backtracking, we might have non-token
+				// nodes in tokenOrNode / nodeStack.
 				// FIXME: Are we sure that the nodeStack only contains tokens?
 				while (nodeStack.length > rule.tokens.length) {
-					tokenStream.undo(nodeStack.pop())
+					var token = nodeStack.pop()
+
+					if (token.type != 'token') {
+						throw new Error("Fatal: trying to push non-token back"
+								+ "into token stream: " + token)
+					}
+
+					debugLog(6, "Undoing " + token)
+					tokenStream.undo(token)
 				}
 
 				debugLog(6, "Applying rule (" + rule + ") to nodes ("
@@ -274,7 +292,7 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 				nodeStack   = []
 				stateRules  = this.subruleMap[context]
 
-				debugLog(4, "  <- " + tokenOrNode)
+				debugLog(2, "  <- " + tokenOrNode.name)
 				index = 0
 				continue
 
@@ -293,7 +311,7 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 					nodeStack   = []
 					stateRules  = this.subruleMap[context]
 
-					debugLog(4, "  <- " + tokenOrNode)
+					debugLog(2, "  <- " + tokenOrNode.name)
 					index = 0
 					continue
 				} else {
@@ -304,7 +322,7 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 				}
 
 			} else { // #stateRules > 1, #currPotentialRules >= 0
-				debugLog(4, "Too many state rules; continuing...")
+				debugLog(3, "Too many state rules; continuing...")
 				nodeStack.push(tokenOrNode)
 			}
 

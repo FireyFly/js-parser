@@ -1,0 +1,25 @@
+# vim:syn=desktop
+
+[Options]
+verbosity = 5
+
+[Grammar]
+$top      ::=  expr-1 $eof
+expr-1    ::=  expr-1 "+" expr-1
+            |  expr-1 "-" expr-1
+            | *expr-2
+
+expr-2    ::=  expr-2 "*" expr-2
+            |  expr-2 "/" expr-2
+            |  expr-3
+
+expr-3    ::=  "(" expr-1 ")"
+            | *func
+            | *number
+
+func      ::=  func-name expr-3
+func-name ::=  "sin" | "cos" | "tan"
+
+#2 * sin 2 * (4 + 1)
+[Input]
+2 * 2 * (3 + 4)
