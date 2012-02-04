@@ -177,22 +177,19 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 		// Filter out rules with tokenOrNode
 		while (true) {
 			//-- Handle state pushing/popping first of all ----------
-			debugLog(6, "Time to pop?", tokenOrNode.name, "==", context, "?")
 			if (tokenOrNode.name == context) {
 				if (context == '$top') {
 					// FIXME: Semi-hacky?
 					return tokenOrNode
 				} else if (!mayPopState && stateRules.length > 1) {
-					debugLog(3, "Potential rule state w/ state stack")
+					debugLog(3, "Potential longer rule [w/ state stack]")
 					inPotentialRuleState  = true
 					mayPopState           = true
 					// FIXME: Hacky solution. Create a fake grammar rule to
 					// trick the backtracking part into doing the right thing.
-					potentialRuleStateTip = {
-						name   : context,
-						tokens : [ [context, "*"] ]
-					}
-				//	nodeStack.push(tokenOrNode)
+					//   The 'null' token is important to tell the backtracking
+					// part that they're backtracking into a state pop.
+					potentialRuleStateTip = { tokens: [ null ] }
 				} else {
 					var oldContext = context
 					var newState = stateStack.pop()
@@ -271,8 +268,6 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 
 				nodeStack.push(tokenOrNode)
 
-				// FIXME: due to state backtracking, we might have non-token
-				// nodes in tokenOrNode / nodeStack.
 				// FIXME: Are we sure that the nodeStack only contains tokens?
 				while (nodeStack.length > rule.tokens.length) {
 					var token = nodeStack.pop()
@@ -285,6 +280,15 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 					debugLog(6, "Undoing " + token)
 					tokenStream.undo(token)
 				}
+
+				// FIXME: See above notes. If we backtrack due to state stuff,
+				// we need to pop the state next iteration. Otherwise, make sure
+				// we don't pop the state stack.
+				if (rule.tokens[0] == null) {
+					tokenOrNode = nodeStack.pop()
+					continue
+				}
+				mayPopState = false
 
 				debugLog(6, "Applying rule (" + rule + ") to nodes ("
 						+ nodeStack + ")")
