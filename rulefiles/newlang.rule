@@ -1,0 +1,63 @@
+# vim:syn=desktop
+
+[Options]
+verbosity = 5
+
+
+[Grammar]
+$top                 ::=  statements $eof
+
+#### Statements #####################################################
+#statements           ::=  statement | statement statement-sep statements
+statements           ::=  statement | statement ";" statements
+statement            ::=  statement-var-decl | expr
+statement-sep        ::=  ";"
+
+# Variable declarations
+statement-var-decl   ::=  "var" statement-var-decl-1
+statement-var-decl-1 ::=  statement-var-decl-2
+                       |  statement-var-decl-2 "," statement-var-decl-1
+statement-var-decl-2 ::=  identifier
+                       |  identifier "=" expr
+
+
+#### Expressions ####################################################
+expr                 ::=  expr-function-call | expr-object-index
+                       |  identifier | literal
+
+expr-function-call   ::=  expr "(" ")"
+                       |  expr "(" expr-function-call-args ")"
+expr-function-call-args ::=  expr | expr "," expr-function-call-args-1
+
+expr-object-index    ::=  expr "." identifier
+                       |  expr "[" expr "]"
+
+
+#### Literals #######################################################
+literal              ::= *literal-object | *literal-function
+                       | *number | *string
+
+# Object literals
+literal-object       ::=  "{" "}"
+                       |  "{" literal-object-props "}"
+literal-object-props ::=  literal-object-prop
+                       |  literal-object-prop "," literal-object-props
+literal-object-prop  ::=  expr
+                       |  identifier "=" expr
+# Function literals
+literal-function     ::=  "#" literal-function-params "{" literal-function-body "}"
+                       |  "#" "{" literal-function-body "}"
+literal-function-params      ::=  "(" ")"
+                               |  "(" literal-function-param-list ")"
+literal-function-param-list  ::=  identifier
+                               |  identifier "," literal-function-param-list
+literal-function-body        ::=  statements
+
+
+#{ a = 1, 2, b = 3 }
+[Input]
+var a = {
+	#(a) { 20 },
+	a = 4,
+	"hello"
+}

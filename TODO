@@ -1,0 +1,8 @@
+
+ *  Work on fixing the problem(s) with backtracking by allowing the parser to
+    work on multiple states at the same time, in parallel.
+    -  When an ambiguity is found, the state is forked. For instance, when we
+       push a state but allow backtracking (backtracking w/ state popping). Also
+       allows multiple nonterminals to be worked on in parallel.
+    -  When backtracking is needed because a longer state failed, we can dump
+       the longer state and apply the shorter one.
