@@ -1,7 +1,14 @@
 # vim:syn=desktop
 
 [Options]
-verbosity = 5
+verbosity = 0
+
+[Tokens]
+identifier  ::=    /[A-Za-z_$]/ /[A-Za-z0-9_$]/
+number      ::=    /\d/
+string      ::=    delimited "
+whitespace  ::= i: /\s/
+operator    ::=    true         false
 
 
 [Grammar]
@@ -54,10 +61,9 @@ literal-function-param-list  ::=  identifier
 literal-function-body        ::=  statements
 
 
-#{ a = 1, 2, b = 3 }
 [Input]
 var a = {
-	#(a) { 20 },
-	a = 4,
+	#{ 20 },
+	#{ 40 },
 	"hello"
 }

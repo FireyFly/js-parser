@@ -3,6 +3,12 @@
 [Options]
 verbosity = 0
 
+[Tokens]
+number      ::=    /\d/
+whitespace  ::= i: /\s/
+function    ::=    /[A-Za-z]/
+operator    ::=    /[-+*\/()]/ false
+
 [Grammar]
 $top      ::=  expr-1 $eof
 expr-1    ::=  expr-1 "+" expr-1

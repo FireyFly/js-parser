@@ -1,5 +1,4 @@
-
-var parser = require('./index')
+var parserModule = require('./index')
 
 //-- Utility functions ----------------------------------------------
 function beginsIdentifier(c) {
@@ -18,8 +17,9 @@ function isIdentifier(c) {
 
 //-- Create lexer & parser ------------------------------------------
 // Lexer
-var lexer = new parser.Lexer()
+//var lexer = new parser.Lexer()
 
+/*
 lexer.add("identifier", beginsIdentifier, isIdentifier)
 lexer.add("number",     isNumber,         isNumber    )
 lexer.add("string", function(c) {
@@ -29,6 +29,7 @@ lexer.add("string", function(c) {
 })
 lexer.add("whitespace",  isWhitespace, isWhitespace, true)
 lexer.add("operator", function() {return true}, function() {return false})
+*/
 
 
 function parseRuleFile(filename, callback) {
@@ -41,11 +42,12 @@ function parseRuleFile(filename, callback) {
 		  , state = '$top'
 		  , match
 
-		var rulemap = {}
-		var input   = []
-		var options = {
-			verbosity : 0
-		}
+		var rulemap  = {}
+		  , tokenArr = []
+		  , input    = []
+		  , options  = {
+		 	  verbosity : 0
+		  }
 
 		function checkNonComment(line) {
 			if (line.match(/^(?:#.*)?$/)) {
@@ -62,56 +64,136 @@ function parseRuleFile(filename, callback) {
 
 			if (match = line.match(/^\[(.*)\]$/)) {
 				state = match[1].toLowerCase()
-			} else if (state == 'grammar') {
-				if (match = line.match(/([^:]+)\s*::=/)) {
-					var start = i
-					for (++i; lines[i].match(/^\s*\|/) && i < lines.length; i++);
-					var end = i
+				continue
+			}
+			switch (state) {
+				case 'grammar':
+					if (match = line.match(/([^:]+)::=/)) {
+						var start = i
+						for (++i; lines[i].match(/^\s*\|/) && i < lines.length; i++);
+						var end = i
 
-					match = lines.slice(start, end).join(" ").split(/::=/)
-					var name = match[0].trim()
-					  , rules = match[1].split(/\|/).map(trim)
+						match = lines.slice(start, end).join(" ").split(/::=/)
+						var name  = match[0].trim()
+						  , rules = match[1].split(/\|/).map(trim)
 
-					rules = rules.map(function(strRule) {
-						return strRule.split(/\s+/).map(function(rtoken) {
-							if (match = rtoken.match(/^(\*?)([^"]+)$/)) {
-								return match[1] ? [match[2], "*"] : [match[2]]
-							} else if (match = rtoken.match(/^"([^"]+)"$/)) {
-								return match[1]
-							} else {
-								throw new Error("Invalid rtoken: " + rtoken)
-							}
+						rules = rules.map(function(strRule) {
+							return strRule.split(/\s+/).map(function(rtoken) {
+								if (match = rtoken.match(/^(\*?)([^"]+)$/)) {
+									return match[1] ? [match[2], "*"] : [match[2]]
+								} else if (match = rtoken.match(/^"([^"]+)"$/)) {
+									return match[1]
+								} else {
+									throw new Error("Invalid rtoken: " + rtoken)
+								}
+							})
 						})
-					})
 
-					if (!rulemap[name]) rulemap[name] = []
-					Array.prototype.push.apply(rulemap[name], rules)
-					--i
-				} else {
-					checkNonComment(line)
-				}
-			} else if (state == 'input') {
-				input.push(lineRaw)
-			} else if (state == 'options') {
-				if (match = line.match(/^(.*)[=:](.*)$/)) {
-					var name  = match[1].trim()
-					  , value = match[2].trim()
+						if (!rulemap[name]) rulemap[name] = []
+						Array.prototype.push.apply(rulemap[name], rules)
+						--i
+					} else {
+						checkNonComment(line)
+					}
 
-					options[name] = value
-				} else {
-					checkNonComment(line)
-				}
+					break
+
+				case 'tokens':
+					if (match = line.match(/^([^:]+)::=\s*(i:|)\s*(.*)$/)) {
+						var name  = match[1].trim()
+						  , flags = match[2].replace(/:$/, '')
+						  , rules = match[3].trim()
+
+						function ruleStringToReal(str) {
+							if (str == 'true' || str == 'false') {
+								var which = (str == 'true' ? true : false)
+								return function() { return which }
+							} else if (str[0] == '/') {
+								var regex = new RegExp(str.trim().slice(1, -1))
+								return function(chr) { return chr.match(regex) }
+							} else if (match = str.match(/^delimited (\S)$/)) {
+								var delimiter = match[1]
+
+								function begins(c) { return c == delimiter }
+								function matches(c, i, str) {
+									return i == 1 || (str[i-1] != delimiter
+											&& str[i-2] != '\\')
+								}
+
+								return [begins, matches, false]
+							} else {
+								throw new Error("Invalid string: '" + str + "'")
+							}
+						}
+
+						// Handle the special case of 'delimited' tokens, e.g.
+						// quoted strings, regex literals.
+						if (rules.trim().match(/^delimited .$/)) {
+							tokenArr.push([name].concat(
+									ruleStringToReal(rules.trim())))
+							continue
+						}
+
+						var exprPattern = [
+							'true', 'false',
+							'/(?:[^/]|\\\\/)*/'
+						].join('|')
+						var rulesPattern = new RegExp('^(' + exprPattern
+								+ ')(|\\s+(?:' + exprPattern + '))$')
+						  , rulesNice = rules.match(rulesPattern)
+
+						if (!rulesNice) {
+							throw new Error("Syntax error in token rule " + name
+									+ ": '" + rules + "'")
+						}
+
+						tokenArr.push([
+							name,
+							ruleStringToReal(rulesNice[1]),
+							ruleStringToReal(rulesNice[2].trim() || rulesNice[1]),
+							(flags.indexOf('i') >= 0)
+						])
+
+					} else {
+						checkNonComment(line)
+					}
+					break
+
+				case 'options':
+					if (match = line.match(/^(.*)[=:](.*)$/)) {
+						var name  = match[1].trim()
+						  , value = match[2].trim()
+
+						options[name] = value
+					} else {
+						checkNonComment(line)
+					}
+					break
+
+				case 'input':
+					input.push(lineRaw)
+					break
+
+				case '$top': break
+
+				default:
+					console.warn("Ignoring unknown section: " + state)
 			}
 		}
 
-		var res = new parser.Parser()
+		// Create parser
+		var parser = new parserModule.Parser()
 		for (var name in rulemap) {
-			res.add.apply(res, [name].concat(rulemap[name]))
+			parser.add.apply(parser, [name].concat(rulemap[name]))
 		}
-		res.prepare()
+		parser.prepare()
+
+		// Create lexer
+		var lexer = new parserModule.Lexer()
+		tokenArr.forEach(lexer.add.apply.bind(lexer.add, lexer))
 
 		options.input = input.join("\n")
-		callback(null, res, options)
+		callback(null, lexer, parser, options)
 	})
 }
 
@@ -122,7 +204,7 @@ if (process.argv.length != 3) {
 	process.exit(1)
 }
 
-parseRuleFile(process.argv[2], function(err, parser, options) {
+parseRuleFile(process.argv[2], function(err, lexer, parser, options) {
 	if (err) throw err
 
 	function pad(str, n, rightpad) {

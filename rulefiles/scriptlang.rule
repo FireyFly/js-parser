@@ -1,5 +1,13 @@
 # vim:syntax=desktop
 
+[Tokens]
+identifier  ::=    /[A-Za-z_$]/ /[A-Za-z0-9_$]/
+number      ::=    /\d/
+string      ::=    delimited "
+whitespace  ::= i: /\s/
+operator    ::=    true         false
+
+
 [Grammar]
 $top               ::= statements $eof
 statements         ::= statement
