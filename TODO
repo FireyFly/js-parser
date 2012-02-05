@@ -9,3 +9,6 @@
 
  *  Add support for nodes/tokens having multiple names. This reduces tree size
     by adding more metadata to the nodes.
+
+ *  Add support for rules of length 0, such that 'a ::= | expr | expr "," a' (?)
+

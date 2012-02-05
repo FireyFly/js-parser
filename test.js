@@ -230,7 +230,7 @@ parseRuleFile(flags["filename"], function(err, lexer, parser, options) {
 	try {
 		var tokens = lexer.tokenize(options.input)
 	} catch (err) {
-		log("Error while lexing:", err)
+		console.warn("Error while lexing:", err)
 		process.exit(2)
 	}
 
@@ -245,7 +245,7 @@ parseRuleFile(flags["filename"], function(err, lexer, parser, options) {
 			undo : tokens.unshift.bind(tokens)
 		}, flags["q"] ? 0 : options.verbosity)
 	} catch (err) {
-		log("Error while parsing:", err)
+		console.warn("Error while parsing:", err)
 		process.exit(3)
 	}
 
