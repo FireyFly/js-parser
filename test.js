@@ -199,12 +199,27 @@ function parseRuleFile(filename, callback) {
 
 // Parser
 //var parser = new parser.Parser()
-if (process.argv.length != 3) {
-	console.log("  Usage: " + process.argv.slice(0, 2).join(" ") + " <rulefile>")
+if (process.argv.length < 3) {
+	console.log("  Usage: " + process.argv.slice(0, 2).join(" ") + " [-q] <rulefile>")
 	process.exit(1)
 }
 
-parseRuleFile(process.argv[2], function(err, lexer, parser, options) {
+var flags = { }
+process.argv.slice(2).forEach(function(arg, idx) {
+	if (arg[0] == '-') {
+		flags[arg[1]] = true
+	} else {
+		flags["filename"] = arg
+
+		if (process.argv.length > idx + 3) {
+			console.log("Stray arguments: "
+					+ process.argv.slice(idx + 3).join(" "))
+			process.exit(1)
+		}
+	}
+})
+
+parseRuleFile(flags["filename"], function(err, lexer, parser, options) {
 	if (err) throw err
 
 	function pad(str, n, rightpad) {
@@ -212,26 +227,37 @@ parseRuleFile(process.argv[2], function(err, lexer, parser, options) {
 		return rightpad ? str + pad : pad + str
 	}
 
-	var tokens = lexer.tokenize(options.input)
+	try {
+		var tokens = lexer.tokenize(options.input)
+	} catch (err) {
+		log("Error while lexing:", err)
+		process.exit(2)
+	}
 
-	console.log()
-	console.log("## Input: ##########################################")
-	console.log(options.input.trim())
+	var log = flags["q"] ? (function() {}) : console.log.bind(console)
+	log()
+	log("## Input: ##########################################")
+	log(options.input.trim())
 
-	var res = parser.parse({
-		next : tokens.shift.bind(tokens),
-		undo : tokens.unshift.bind(tokens)
-	}, options.verbosity)
+	try {
+		var res = parser.parse({
+			next : tokens.shift.bind(tokens),
+			undo : tokens.unshift.bind(tokens)
+		}, flags["q"] ? 0 : options.verbosity)
+	} catch (err) {
+		log("Error while parsing:", err)
+		process.exit(3)
+	}
 
-	console.log()
-	console.log("## Parser: #########################################")
+	log()
+	log("## Parser: #########################################")
 
 	function printTree(indent, node) {
 		if (node.type == 'token') {
-			console.log(indent + node)
+			log(indent + node)
 		} else {
 			var pretty = node.terminals.map(function(x) {return x.value}).join(" ")
-			console.log(indent + node.name + ": " + pretty)
+			log(indent + node.name + ": " + pretty)
 		}
 
 		if (node.children) {
