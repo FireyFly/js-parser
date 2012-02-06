@@ -18,9 +18,9 @@ for file in $(ls rulefiles/*); do
 	
 	case $RET in
 		0 ) ;; # Don't do anything if the test exited OK.
-		2 ) echo "[Lexer ] error in: $wht${file}$rst" ;;
-		3 ) echo "[Parser] error in: $wht${file}$rst" ;;
-		* ) echo "[???   ] error in: $wht${file}$rst" ;;
+		2 ) echo "[Lexer ] error in: $red${file}$rst" ;;
+		3 ) echo "[Parser] error in: $red${file}$rst" ;;
+		* ) echo "[???   ] error in: $red${file}$rst" ;;
 	esac
 done
 

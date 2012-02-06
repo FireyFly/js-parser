@@ -1,7 +1,7 @@
 # vim:syn=desktop
 
 [Options]
-verbosity = 0
+verbosity = 5
 
 [Tokens]
 number      ::=    /\d/

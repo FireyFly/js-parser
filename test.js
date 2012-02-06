@@ -136,7 +136,7 @@ function parseRuleFile(filename, callback) {
 
 						var exprPattern = [
 							'true', 'false',
-							'/(?:[^/]|\\\\/)*/'
+							'/(?:[^/\\\\]|\\\\.)*/'
 						].join('|')
 						var rulesPattern = new RegExp('^(' + exprPattern
 								+ ')(|\\s+(?:' + exprPattern + '))$')
@@ -230,7 +230,7 @@ parseRuleFile(flags["filename"], function(err, lexer, parser, options) {
 	try {
 		var tokens = lexer.tokenize(options.input)
 	} catch (err) {
-		console.warn("Error while lexing:", err)
+		console.warn("Error while lexing:", err.stack)
 		process.exit(2)
 	}
 
@@ -245,7 +245,7 @@ parseRuleFile(flags["filename"], function(err, lexer, parser, options) {
 			undo : tokens.unshift.bind(tokens)
 		}, flags["q"] ? 0 : options.verbosity)
 	} catch (err) {
-		console.warn("Error while parsing:", err)
+		console.warn("Error while parsing:", err.stack)
 		process.exit(3)
 	}
 

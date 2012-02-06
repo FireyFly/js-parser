@@ -150,29 +150,93 @@ function createNode(rule, tokens) {
 	}
 }
 
+//-- Parser#parse sub-parts -----------------------------------------
+
+//-- doMaybePopStack -- Either pops the state stack, or makes sure that we might
+// pop the state stack next time around (mayPopState). Specially handles the
+// case when we're about to pop a '$top' state, since this means we're done with
+// the parsing.
+//   May alter stateStack and potentialLongerMatch ( :/ )
+//   NOTE: returns [ newState, mayPopState, returnNode ]; if either is null, do
+//         not alter. If returnNode is set, return node as the resulting value
+//         of the parsing.
+function doMaybePopStack(stateStack, state, mayPopState, potentialLongerMatch) {
+	if (state.context == '$top') {
+		// FIXME: A bit hacky?
+		return [ null, null, true ]
+
+	} else if (!mayPopState && state.rules.length > 1) {
+		debugLog(3, "Potential longer rule [w/ state stack]")
+		mayPopState                = true
+		potentialLongerMatch.state = true
+		// FIXME: Hacky solution. Create a fake grammar rule to
+		// trick the backtracking part into doing the right thing.
+		//   The 'null' token is important to tell the backtracking
+		// part that they're backtracking into a state pop.
+		potentialLongerMatch.rule = { tokens: [ null ] }
+		return [ null, true ]
+
+	} else {
+		var newState = stateStack.pop()
+	//	mayPopState = false
+		debugLog(1, "<<< ", state.context, "->", newState.context)
+		return [ newState, false ]
+	}
+}
+
+//-- doPushStack -- Pushes the current state to the stack and returns a new one
+// to replace it.
+//   Alters stateStack.
+function doPushStack(stateStack, state, subruleMap) {
+	var rule       = state.rules[0]
+	  , currRtoken = rule.tokens[state.index]
+	  , newContext = currRtoken[0]
+
+	stateStack.push(state)
+
+	debugLog(1, ">>> ", newContext)
+
+	return { // The new state to change to
+		context   : newContext,
+		nodeStack : [],
+		index     : 0,
+		rules     : subruleMap[newContext]
+	}
+}
+
 // Parser#parse -- parses a token stream into a parse tree.
 Parser.prototype.parse = function(tokenStream, verbosity) {
 	VERBOSITY = (verbosity || 0)
 
-	var inPotentialRuleState  = false
-	  , potentialRuleStateTip = null
-
 	var mayPopState = false
 
-	var state = {
-		context   : '$top',
-		index     : 0,
-		rules     : this.subruleMap['$top'],
-		nodeStack : []
+	var potentialLongerMatch = {
+		state : false,
+		rule  : null
 	}
 
-	var stateStack = []
+	var session = {
+		state: {
+			context   : '$top',
+			index     : 0,
+			rules     : this.subruleMap['$top'],
+			nodeStack : []
+		},
+		stack: []
+	}
 
-	while (node = tokenStream.next()) {
+	var token, node
+	  , stateStack = session.stack
+
+	var state = session.state
+
+	while (token = tokenStream.next()) {
 		// TODO: Preserve ignored tokens in the resulting tree.
-		if (node.ignore) {
+		if (token.ignore) {
 			continue
 		}
+
+		node = token
 
 		var currNonterminalRules = state.rules.filter(function(rule) {
 			return Array.isArray(rule.tokens[state.index])
@@ -182,26 +246,11 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 		while (true) {
 			//-- Handle state pushing/popping first of all ----------
 			if (node.name == state.context) {
-				if (state.context == '$top') {
-					// FIXME: Semi-hacky?
-					return node
-				} else if (!mayPopState && state.rules.length > 1) {
-					debugLog(3, "Potential longer rule [w/ state stack]")
-					mayPopState           = true
-					inPotentialRuleState  = true
-					// FIXME: Hacky solution. Create a fake grammar rule to
-					// trick the backtracking part into doing the right thing.
-					//   The 'null' token is important to tell the backtracking
-					// part that they're backtracking into a state pop.
-					potentialRuleStateTip = { tokens: [ null ] }
-				} else {
-					var oldContext = state.context
-
-					state = stateStack.pop()
-					mayPopState = false
-
-					debugLog(1, "<<< ", oldContext, "->", state.context)
-				}
+				var tmp = doMaybePopStack(stateStack, state, mayPopState,
+						potentialLongerMatch)
+				if (tmp[0] != null) { session.state = state = tmp[0] } // FIXME
+				if (tmp[1] != null) { mayPopState = tmp[1] }
+				if (tmp[2]) { return node }
 
 			} else if (currNonterminalRules.length == 1 && state.index > 0
 					&& state.rules.length > 1
@@ -210,31 +259,20 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 				// multiple rules with terminals at the curr index. Try the
 				// terminals first, and otherwise fall back to the single rule
 				// with nonterminal.
-				inPotentialRuleState  = true
-				potentialRuleStateTip = currNonterminalRules[0]
+				//   This is definitely a hacky solution.
+				potentialLongerMatch.state = true
+				potentialLongerMatch.rule  = currNonterminalRules[0]
 
-			} else if (state.rules.length == 1 && state.index > 0
+			} else if (state.rules.length == 1
 					&& Array.isArray(state.rules[0].tokens[state.index])
 					&& (state.rules[0].tokens[state.index] in this.rules)) {
-				// Change state if we're following a single rule and we are on an
-				// index > 0
-				var rule       = state.rules[0]
-				  , currRtoken = rule.tokens[state.index]
-				  , newContext = currRtoken[0]
-
-				stateStack.push(state)
-
-				state = { // The new state to change to
-					context   : newContext,
-					nodeStack : [],
-					index     : 0,
-					rules     : this.subruleMap[newContext]
-				}
-
-				debugLog(1, ">>> ", state.context)
+				// Change state if we're following a single rule, and we're on a
+				// nonterminal.
+				// FIXME
+				session.state = state = doPushStack(stateStack, state, this.subruleMap)
 			}
-			//-- State push/pop end ---------------------------------
 
+			//-- Current state --------------------------------------
 			debugLog(5)
 			debugLog(5, "Current node: " + node)
 
@@ -267,21 +305,21 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 				// rules, and otherwise fall back to the original match (and
 				// push back the tokens). This should be the only case when we
 				// need to backtrack.
-				inPotentialRuleState  = true
-				potentialRuleStateTip = currPotentialRules[0]
+				potentialLongerMatch.state = true
+				potentialLongerMatch.rule  = currPotentialRules[0]
 				state.nodeStack.push(node)
 
-			} else if (state.rules.length == 0 && inPotentialRuleState) {
+			} else if (state.rules.length == 0 && potentialLongerMatch.state) {
 				debugLog(5, "Longer match failed; backtracking...")
 				// Longer rule(s) failed to match. Fall back to the longest
 				// matching rule by popping tokens from the stack and pushing
 				// them back into the stream, until we have just enough tokens to
 				// get a potentialMatch.
 
-				inPotentialRuleState = false
-				var rule = potentialRuleStateTip
+				potentialLongerMatch.state = false
+				var rule = potentialLongerMatch.rule
 
-				// FIXME: More ugly state backtracking semi-ugly stuff.
+				// FIXME: More ugly state backtracking stuff.
 				if (rule.tokens.length > state.nodeStack.length) {
 					state.rules = [ rule ]
 					continue
@@ -321,34 +359,31 @@ Parser.prototype.parse = function(tokenStream, verbosity) {
 				state.index = 0
 				continue
 
-			} else if (state.rules.length == 0 && !inPotentialRuleState) {
+			} else if (state.rules.length == 0) { // !potentialLongerMatch.state
 				throw new Error("No rule to handle syntax! Working on "
 						+ state.context + "; tokens are "
 						+ state.nodeStack.concat([node]).join(" "))
 
-			// We have exactly one state rule! This is good...
-			//} else if (state.rules.length == 1) {
-			} else if (state.rules.length == 1) {
+			} else if (state.rules.length == 1
+					&& state.rules[0].tokens.length == state.nodeStack.length + 1) {
+				// If we have exactly one state rule, and we have enough tokens,
+				// apply the rule and move on with this new node.
 				var rule = state.rules[0]
-				if (rule.tokens.length == state.nodeStack.length + 1) {
-					debugLog(5, "Exactly one state rule; matching rule!")
+				debugLog(5, "Exactly one state rule; matching rule!")
 
-					node = createNode(rule, state.nodeStack.concat([node]))
-					state.nodeStack   = []
-					state.rules  = this.subruleMap[state.context]
+				node = createNode(rule, state.nodeStack.concat([node]))
+				state.nodeStack = []
+				state.rules = this.subruleMap[state.context]
+				state.index = 0
 
-					debugLog(2, "  <- " + node.name)
-					state.index = 0
-					continue
-				} else {
-					debugLog(5, "Exactly one state rule, but not enough tokens!")
-					debugLog(6, "  Rule   : " + rule)
-					debugLog(6, "  Tokens : " + state.nodeStack.concat([node]))
-					state.nodeStack.push(node)
-				}
+				debugLog(2, "  <- " + node.name)
+				continue
 
-			} else { // #state.rules > 1, #currPotentialRules >= 0
-				debugLog(3, "Too many state rules; continuing...")
+			} else {
+				//    #state.rules >  1, #currPotentialRules >= 0
+				// || #state.rules == 1, #tokens != #rule.tokens
+				debugLog(3, "Either exactly one state rule but not enough tokens,")
+				debugLog(3, "or too many rules. Continuing.")
 				state.nodeStack.push(node)
 			}
 
