@@ -26,6 +26,8 @@ expr-3    ::=  "(" expr-1 ")"
 func      ::=  func-name expr-3
 func-name ::=  "sin" | "cos" | "tan"
 
+#2 * sin 2 * (4 + 1) + 2 * 2 / cos(3 + 4)
 #2 * sin 2 * (4 + 1)
+#2 * 3 + 1 * 2
 [Input]
 2 * sin 2 * (4 + 1) + 2 * 2 / cos(3 + 4)

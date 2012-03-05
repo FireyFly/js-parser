@@ -1,397 +1,315 @@
+var util = require('util')
 
 // Debugging
 var VERBOSITY = 0 //10
 
-function debugLog(verbosity/*, ...message*/) {
-	if (VERBOSITY < verbosity) { return }
-	var prefix = "[" + Array(verbosity+1).join("*")
-			+ Array(VERBOSITY - verbosity + 1).join(" ") + "]"
-	console.log.apply(console, [prefix].concat(
-			Array.prototype.slice.call(arguments, 1)))
+var debugIndentation = 0
+function debugLog(indentation, arg1/*, ...args*/) {
+  var spaces = Array(debugIndentation + indentation + 1).join("  ")
+    , args   = Array.prototype.slice.call(arguments, 2)
+
+  console.log.apply(console, [spaces + arg1].concat(args))
 }
 
 // Helper functions
 function isRegExp(o) {
-	return o != null && typeof o == 'object' && o instanceof RegExp
+  return o != null && typeof o == 'object' && o instanceof RegExp
 }
 
 //-- Parser ---------------------------------------------------------
 var Parser = exports.Parser = function() {
-	this.rules = {}
-	this.subruleMap = {}
+  this.rules    = {}
+  this.allRules = []
 }
 
 // Parser#add -- adds rules to the ruleset given by the ruleset name.
-Parser.prototype.add = function(name/*, ...rule*/) {
-	var self = this
-	  , rules = Array.prototype.slice.call(arguments, 1)
+Parser.prototype.add = function(name/*, ...rules*/) {
+  var self  = this
+    , rules = Array.prototype.slice.call(arguments, 1)
 
-	if (!this.rules[name]) this.rules[name] = []
+  if (!this.rules[name]) this.rules[name] = []
 
-	rules.forEach(function(tokens) {
-		self.rules[name].push({
-			name   : name,
-			tokens : tokens,
+  rules.forEach(function(tokens) {
+    var newRule = {
+      name   : name,
+      tokens : tokens,
 
-			toString: function() {
-				return this.tokens.map(function(o) {
-					if (isRegExp(o)) {
-						return "" + o
-					} else {
-						return JSON.stringify(o)
-					}
-				}).join(" ")
-			}
-		})
-	})
+      toString: function() {
+        return util.format("%s ::= %s", this.name, formatTokens(this.tokens))
+
+        function formatTokens(arr) {
+          return arr.map(function(o) {
+            return typeof o == 'string' ? '"' + o + '"'
+                 : Array.isArray(o)     ? o[0]
+                 : /* else */             "???"
+          }).join(" ")
+        }
+      }
+    }
+
+    self.rules[name].push(newRule)
+    self.allRules.push(newRule)
+  })
 }
 
-// Parser#prepare -- prepares the parser for parsing, making sure that internal
-// maps and other things are up-to-date.
-//
-// TODO: Automatically call Parser#prepare from Parser#parse if the internal
-// parser state has been altered after last preparation.
-Parser.prototype.prepare = function() {
-	var self   = this
-	  , submap = this.subruleMap = []
-
-	// Create the subrule map, and then populate it. The goal of the subrule map
-	// is to be able to look up a list of all rules and subrules that belongs to
-	// a given rulename.
-
-	for (var name in this.rules) {
-		var traversed = []
-		  , mymap = submap[name] = []
-
-		function traverse(name) {
-			traversed.push(name)
-
-			if (!self.rules[name]) return
-
-			self.rules[name].forEach(function(rule) {
-				mymap.push(rule)
-
-		//		rule.tokens.forEach(function(token) {
-				var firstToken = rule.tokens[0]
-				if (Array.isArray(firstToken) &&
-						traversed.indexOf(firstToken[0]) == -1) {
-					traverse(firstToken[0])
-				}
-			})
-		}
-
-		traverse(name)
-	}
-}
+// FIXME: Remove
+Parser.prototype.prepare = function() { }
 
 // Parser#parse helpers
+// FIXME: Won't be needed I think.
 function matchRule(rtoken, token) {
-	switch (typeof rtoken) {
-		case 'undefined': return false
-		case 'string': return token.value == rtoken
-		case 'object':
-			if (Array.isArray(rtoken)) {
-				return token.name == rtoken[0]
-			} else if (isRegExp(rtoken)) {
-				return rtoken.test(token.value)
-			}
-	}
+  if (token == null) return false
 
-	throw new Error("Unsupported rule token type: " + (typeof rtoken) +
-			": " + rtoken)
+  switch (typeof rtoken) {
+    case 'undefined': return false
+    case 'string': return token.value == rtoken
+    case 'object':
+      if (Array.isArray(rtoken)) {
+        return token.name == rtoken[0]
+      } else if (isRegExp(rtoken)) {
+        return rtoken.test(token.value)
+      }
+  }
+
+  throw new Error(util.format("Unsupported rule token type: %s: %s",
+                              (typeof rtoken), rtoken))
 }
 
+// FIXME: Won't be needed I think.
 function getRuleFilter(token, index) {
-	return function(rule) {
-		var rtoken = rule.tokens[index]
-
-		debugLog(7, "  Filter rule?  " + index + " : " + rule)
-		debugLog(7, "    ..." + (matchRule(rtoken, token) ? "yes" : "no"))
-
-		return matchRule(rtoken, token)
-	}
+  return function(rule) {
+    return matchRule(rule.tokens[index], token)
+  }
 }
 
+// Creates a new node (nonterminal)
 function createNode(rule, tokens) {
-	if (rule.tokens.length != tokens.length) {
-		throw new Error("createNode: length mismatch: #rule is " +
-				rule.tokens.length + " tokens, #tokens is " + tokens.length)
-	}
+  if (rule.tokens.length != tokens.length) {
+    throw new Error(util.format(
+        "createNode: length mismatch: #rule is %d tokens, #tokens is %d",
+        rule.tokens.length, tokens.length))
+  }
 
-	var children  = []
-	  , terminals = []
+  var tmp       = partitionChildrenAndTerminals(tokens)
+    , children  = tmp[0]
+    , terminals = tmp[1]
 
-	rule.tokens.forEach(function(rtoken, idx) {
-		if (typeof rtoken == 'string') {
-			terminals.push(tokens[idx])
-		} else {
-			children.push(tokens[idx])
-		}
-	})
+  return {
+    type      : 'node',
+    name      : rule.name,
+    children  : children,
+    terminals : terminals,
 
-	if (rule.tokens.length == 1 && Array.isArray(rule.tokens[0])
-			&& rule.tokens[0][1] == '*' && children[0].children) {
-		// '*' syntax: promote child node instead.
-		debugLog(6, "Promoting " + children[0].name + " to " + rule.name)
-		var res = children[0]
-		res.name = rule.name
-		return res
-	}
+    toString: function() {
+      return util.format("{%s: %s}", this.name, this.children.join(" "))
+    }
+  }
 
-	return {
-		type      : 'node',
-		name      : rule.name,
-		children  : children,
-		terminals : terminals,
+  function partitionChildrenAndTerminals(tokens) {
+    var children  = []
+      , terminals = []
 
-		toString: function() {
-			return "{" + this.name + ": " + this.children.join(" ") + "}"
-		}
-	}
+    rule.tokens.forEach(function(rtoken, idx) {
+      if (typeof rtoken == 'string') {
+        terminals.push(tokens[idx])
+      } else {
+        children.push(tokens[idx])
+      }
+    })
+
+    return [ children, terminals ]
+  }
 }
 
-//-- Parser#parse sub-parts -----------------------------------------
+var debugIndentation = 0
+function debugLog(indentation, arg1/*, ...args*/) {
+  var spaces = Array(debugIndentation + indentation + 1).join(" ")
+    , args   = Array.prototype.slice.call(arguments, 2)
 
-//-- doMaybePopStack -- Either pops the state stack, or makes sure that we might
-// pop the state stack next time around (mayPopState). Specially handles the
-// case when we're about to pop a '$top' state, since this means we're done with
-// the parsing.
-//   May alter stateStack and potentialLongerMatch ( :/ )
-//   NOTE: returns [ newState, mayPopState, returnNode ]; if either is null, do
-//         not alter. If returnNode is set, return node as the resulting value
-//         of the parsing.
-function doMaybePopStack(stateStack, state, mayPopState, potentialLongerMatch) {
-	if (state.context == '$top') {
-		// FIXME: A bit hacky?
-		return [ null, null, true ]
-
-	} else if (!mayPopState && state.rules.length > 1) {
-		debugLog(3, "Potential longer rule [w/ state stack]")
-		mayPopState                = true
-		potentialLongerMatch.state = true
-		// FIXME: Hacky solution. Create a fake grammar rule to
-		// trick the backtracking part into doing the right thing.
-		//   The 'null' token is important to tell the backtracking
-		// part that they're backtracking into a state pop.
-		potentialLongerMatch.rule = { tokens: [ null ] }
-		return [ null, true ]
-
-	} else {
-		var newState = stateStack.pop()
-	//	mayPopState = false
-		debugLog(1, "<<< ", state.context, "->", newState.context)
-		return [ newState, false ]
-	}
+  console.log.apply(console, [spaces + arg1].concat(args))
 }
 
-//-- doPushStack -- Pushes the current state to the stack and returns a new one
-// to replace it.
-//   Alters stateStack.
-function doPushStack(stateStack, state, subruleMap) {
-	var rule       = state.rules[0]
-	  , currRtoken = rule.tokens[state.index]
-	  , newContext = currRtoken[0]
+// Partitions an array of rules into those that matches the end of the tokens,
+// those that might match in the future if given more tokens, and those that
+// won't match even if given more tokens (those that have failed).
+/*
+function partitionRules(tokens, rules) {
+  var matches = []
+    , future  = []
+    , failed  = []
 
-	stateStack.push(state)
+  var lastToken = tokens.slice(-1)[0]
+  rules.forEach(function(rule) {
+    /*
+    var offset           = Math.max(0, tokens.length - rule.tokens.length)
+      , relevantTokens   = tokens.slice(offset)
+      , relevantRulePart = rule.tokens.slice(0, relevantTokens.length)
+      , ruleMatches      = relevantRulePart.every(equalsToken)
+    * /
 
-	debugLog(1, ">>> ", newContext)
+    var firstRuleToken = rule.tokens[0]
+      , ruleMatches    = matchRule(firstRuleToken, lastToken)
 
-	return { // The new state to change to
-		context   : newContext,
-		nodeStack : [],
-		index     : 0,
-		rules     : subruleMap[newContext]
-	}
+    var target = !ruleMatches                       ? failed
+               : tokens.length < rule.tokens.length ? future
+               : /* tokens.length >= ... * /           matches
+
+    var targetS = !ruleMatches                       ? 'failed'
+                : tokens.length < rule.tokens.length ? 'future'
+                : /* tokens.length >= ... * /           'matches'
+    console.log("     %s :: %s  ==> %s", simple(tokens), rule, targetS)
+
+    function simple(tokens) {
+      return tokens.map(function(x) {return x.name}).join(" ")
+    }
+
+    target.push(rule)
+
+    function equalsToken(rtoken, idx) {
+      return matchRule(rtoken, relevantTokens[idx])
+    }
+  })
+
+  return [ matches, future, failed ]
+}
+*/
+
+// Matches an array of rules on the end of an array of tokens, and returns an
+// array of rules + how much of the rule that matches the end of the tokens.
+// E.g. [ rule, 1 ] if only the last token matches the first rule token.
+function matchRuleTails(tokens, rules) {
+  return rules.map(function(rule) {
+    return [ rule, compareRule(rule, tokens) ]
+  })
+
+  return [ matches, future, failed ]
+
+  function compareRule(rule, tokens) {
+    if (rule.tokens.length > tokens.length) {
+      var rtokensLeading = rule.tokens.slice(0, tokens.length)
+        , res            = arrayEq(tokens, rtokensLeading, matchRuleFlipped)
+
+      return res ? tokens.length : 0
+    } else {
+      return compareOverlap(tokens, rule.tokens, matchRuleFlipped)
+    }
+  }
+
+  function matchRuleFlipped(token, rule) {
+    return matchRule(rule, token)
+  }
+
+  function compareOverlap(xs, ys, isEqual) {
+    var maxval = Math.min(xs.length, ys.length)
+
+    for (var i=maxval; i>0; i--) {
+      var xtail = xs.slice(xs.length - i)
+        , ylead = ys.slice(0, i)
+
+      if (arrayEq(xtail, ylead, isEqual)) { return i }
+    }
+    return 0
+  }
+
+  function arrayEq(xs, ys, isEqual) {
+    return xs.every(function(x, i) {
+      return isEqual(x, ys[i])
+    })
+  }
 }
 
-// Parser#parse -- parses a token stream into a parse tree.
+//-- Parser#parse ---------------------------------------------------
+// parses a token stream into a parse tree.
 Parser.prototype.parse = function(tokenStream, verbosity) {
-	VERBOSITY = (verbosity || 0)
+  VERBOSITY = (verbosity || 0)
 
-	var mayPopState = false
+  var self     = this
+    , sessions = [ [] ]
 
-	var potentialLongerMatch = {
-		state : false,
-		rule  : null
-	}
+    , result   = null
 
-	var session = {
-		state: {
-			context   : '$top',
-			index     : 0,
-			rules     : this.subruleMap['$top'],
-			nodeStack : []
-		},
-		stack: []
-	}
+  for (var token; (token = tokenStream.next()) && !result;) {
+    // TODO: Preserve ignored tokens in the resulting tree.
+    if (token.ignore) {
+      continue
+    }
 
-	var token, node
-	  , stateStack = session.stack
+    console.log()
+    console.log(" o Read token %s", token)
 
-	var state = session.state
+    // Add the newly read token to all sessions (shift)
+    sessions.forEach(function(sess) {
+      sess.push(token)
+    })
 
-	while (token = tokenStream.next()) {
-		// TODO: Preserve ignored tokens in the resulting tree.
-		if (token.ignore) {
-			continue
-		}
+    var newSessions  = []
+      , keptSessions = []
 
-		node = token
+    // Apply rules until there are no more rules to apply (reduce)
+    while (sessions.length > 0 && !result) {
+      sessions.forEach(function(sess) {
+        var keep = false
+  //      console.log("   Session: %s", sess.join(" "))
 
-		var currNonterminalRules = state.rules.filter(function(rule) {
-			return Array.isArray(rule.tokens[state.index])
-		})
+        matchRuleTails(sess, self.allRules).forEach(function(tmp) {
+          var rule         = tmp[0]
+            , similarCount = tmp[1]
+            , matched      = (similarCount == rule.tokens.length)
 
-		// Filter out rules with node
-		while (true) {
-			//-- Handle state pushing/popping first of all ----------
-			if (node.name == state.context) {
-				var tmp = doMaybePopStack(stateStack, state, mayPopState,
-						potentialLongerMatch)
-				if (tmp[0] != null) { session.state = state = tmp[0] } // FIXME
-				if (tmp[1] != null) { mayPopState = tmp[1] }
-				if (tmp[2]) { return node }
+          if (matched) {
+            newSessions.push(applyRule(sess, rule))
+   //         console.log("   matched: %s", rule)
+          } else if (similarCount > 0) {
+            // Indicates potential for longer rules to apply
+            keep = true
+          }
+        })
 
-			} else if (currNonterminalRules.length == 1 && state.index > 0
-					&& state.rules.length > 1
-					&& Array.isArray(currNonterminalRules[0].tokens[state.index])) {
-				// We have a single rule with nonterminal at the curr index, and
-				// multiple rules with terminals at the curr index. Try the
-				// terminals first, and otherwise fall back to the single rule
-				// with nonterminal.
-				//   This is definitely a hacky solution.
-				potentialLongerMatch.state = true
-				potentialLongerMatch.rule  = currNonterminalRules[0]
+        if (keep) {
+  //        console.log("   keep!")
+          keptSessions.push(sess)
+        }
 
-			} else if (state.rules.length == 1
-					&& Array.isArray(state.rules[0].tokens[state.index])
-					&& (state.rules[0].tokens[state.index] in this.rules)) {
-				// Change state if we're following a single rule, and we're on a
-				// nonterminal.
-				// FIXME
-				session.state = state = doPushStack(stateStack, state, this.subruleMap)
-			}
+        // Check if we're done
+        if (sess.length == 1 && sess[0].name == '$top') {
+          // "return" the final result
+          result = sess[0]
+        }
+      })
 
-			//-- Current state --------------------------------------
-			debugLog(5)
-			debugLog(5, "Current node: " + node)
+      sessions    = newSessions
+      newSessions = []
+    }
+    Array.prototype.push.apply(sessions, keptSessions)
 
-			state.rules = state.rules.filter(getRuleFilter(node, state.index))
+    // Returns a new session which is `session` with the rule `rule` applied to
+    // the tokens on the top of the stack.
+    function applyRule(sess, rule) {
+      var newSess         = sess.slice() // copy sess
+        , tokensToApplyOn = newSess.splice(newSess.length - rule.tokens.length)
+        , newNode         = createNode(rule, tokensToApplyOn)
 
-			debugLog(5, "State rules:")
-			state.rules.forEach(function(rule) {
-				debugLog(5, "  " + rule)
-			})
-			debugLog(5)
+      newSess.push(newNode)
+      return newSess
+    }
+  }
 
-			var currPotentialRules = state.rules.filter(function(rule) {
-				return rule.tokens.length == state.index + 1
-			})
-
-			// state.rules: the whole rule set that we're currently reducing
-			// currPotentialRules: state rules that might be "finished" by now
-
-			//-- Check what to do next ------------------------------
-			if (currPotentialRules.length > 1) {
-				throw new Error("Rule ambiguity between: {" +
-						currPotentialRules.join("; ") + "}")
-
-			} else if (currPotentialRules.length == 1
-					&& state.rules.length != 1) {
-				debugLog(5, "Potential longer match")
-				// Problem! We have a potential match, but there are other longer
-				// matches that we cannot disregard!
-				//   We need to "try" to read tokens while it matches longer
-				// rules, and otherwise fall back to the original match (and
-				// push back the tokens). This should be the only case when we
-				// need to backtrack.
-				potentialLongerMatch.state = true
-				potentialLongerMatch.rule  = currPotentialRules[0]
-				state.nodeStack.push(node)
-
-			} else if (state.rules.length == 0 && potentialLongerMatch.state) {
-				debugLog(5, "Longer match failed; backtracking...")
-				// Longer rule(s) failed to match. Fall back to the longest
-				// matching rule by popping tokens from the stack and pushing
-				// them back into the stream, until we have just enough tokens to
-				// get a potentialMatch.
-
-				potentialLongerMatch.state = false
-				var rule = potentialLongerMatch.rule
-
-				// FIXME: More ugly state backtracking stuff.
-				if (rule.tokens.length > state.nodeStack.length) {
-					state.rules = [ rule ]
-					continue
-				}
-
-				state.nodeStack.push(node)
-
-				// FIXME: Are we sure that the state.nodeStack only contains tokens?
-				while (state.nodeStack.length > rule.tokens.length) {
-					var token = state.nodeStack.pop()
-
-					if (token.type != 'token') {
-						throw new Error("Fatal: trying to push non-token back"
-								+ "into token stream: " + token)
-					}
-
-					debugLog(6, "Undoing " + token)
-					tokenStream.undo(token)
-				}
-
-				// FIXME: See above notes. If we backtrack due to state stuff,
-				// we need to pop the state next iteration. Otherwise, make sure
-				// we don't pop the state stack.
-				if (rule.tokens[0] == null) {
-					node = state.nodeStack.pop()
-					continue
-				}
-				mayPopState = false
-
-				debugLog(6, "Applying rule (" + rule + ") to nodes ("
-						+ state.nodeStack + ")")
-				node = createNode(rule, state.nodeStack)
-				state.nodeStack   = []
-				state.rules  = this.subruleMap[state.context]
-
-				debugLog(2, "  <- " + node.name)
-				state.index = 0
-				continue
-
-			} else if (state.rules.length == 0) { // !potentialLongerMatch.state
-				throw new Error("No rule to handle syntax! Working on "
-						+ state.context + "; tokens are "
-						+ state.nodeStack.concat([node]).join(" "))
-
-			} else if (state.rules.length == 1
-					&& state.rules[0].tokens.length == state.nodeStack.length + 1) {
-				// If we have exactly one state rule, and we have enough tokens,
-				// apply the rule and move on with this new node.
-				var rule = state.rules[0]
-				debugLog(5, "Exactly one state rule; matching rule!")
-
-				node = createNode(rule, state.nodeStack.concat([node]))
-				state.nodeStack = []
-				state.rules = this.subruleMap[state.context]
-				state.index = 0
-
-				debugLog(2, "  <- " + node.name)
-				continue
-
-			} else {
-				//    #state.rules >  1, #currPotentialRules >= 0
-				// || #state.rules == 1, #tokens != #rule.tokens
-				debugLog(3, "Either exactly one state rule but not enough tokens,")
-				debugLog(3, "or too many rules. Continuing.")
-				state.nodeStack.push(node)
-			}
-
-			++state.index
-			break
-		}
-	}
-
-	throw new Error("Reached end of token stream while parsing!")
+  // Check if we exited expectedly (with a result to return), or if we reached
+  // EOF.
+  if (result) {
+    return result
+  } else {
+    throw new Error("Reached end of stream while parsing.")
+  }
 }
 
+/*
+          function printTree(spaces, node) {
+            if (node.type == 'token') {
+              console.log(spaces + node)
+            } else {
+              console.log(spaces + node.name)
+              node.children.forEach(printTree.bind(null, spaces + "  "))
+            }
+          }
+*/
