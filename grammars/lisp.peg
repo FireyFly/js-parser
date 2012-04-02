@@ -1,0 +1,12 @@
+
+# S-expression rules
+ *C_any      <- .
+ *C_wspace   <- " " / "\t" / "\r" / "\n"
+ *C_exppart  <- !("(" / ")" / C_wspace) C_any
+ *S_         <- %(C_wspace*)
+
+  sexpr      <- "(" (S_ expr)* S_  ")"
+  prim       <- C_exppart C_exppart*
+  expr       <- prim / sexpr
+
+  $top       <- S_ expr S_

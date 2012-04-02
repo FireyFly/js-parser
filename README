@@ -1,0 +1,85 @@
+
+Rule.any(...rules):
+  for each rule; do
+    match rule
+
+    if successful
+      return result
+
+  return fail
+
+
+Rule.sequence(...rules):
+  for each rule; do
+    match rule
+
+    if fail
+      return fail
+
+    else
+      consume matched tokens
+      continue to match next rule
+
+  return concat of results
+
+
+Rule.kleene(rule):
+  match rule
+
+  while successful
+    consume matched tokens
+    continue to match next rule
+
+  return concat of results
+
+
+Rule.optional(rule):
+  match rule
+
+  if successful
+    return result
+
+  else
+    return empty match
+
+
+Rule.and(rule):
+  match rule
+
+  if successful
+    return empty match
+
+  else
+    return fail
+
+
+Rule.not(rule):
+  match rule
+
+  if successful
+    return fail
+
+  else
+    return empty match
+
+
+Rule.ignore(rule):
+  match rule
+
+  if successful
+    consume matched tokens
+    return "empty" match (still consuming tokens)
+
+  else
+    return fail
+
+
+Rule.terminal(str):
+  if leading tokens equal str
+    consume leading tokens
+    return leading tokens
+
+  else
+    return fail
+
+

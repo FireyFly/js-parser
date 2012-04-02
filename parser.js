@@ -1,315 +1,286 @@
-var util = require('util')
 
-// Debugging
-var VERBOSITY = 0 //10
+//-- Utility functions ----------------------------------------------
+function fail(val, message, tokens) {
+  // Default to empty failure value
+  (val == null) && (val = { fail:true, value:[], tokens:tokens })
 
-var debugIndentation = 0
-function debugLog(indentation, arg1/*, ...args*/) {
-  var spaces = Array(debugIndentation + indentation + 1).join("  ")
-    , args   = Array.prototype.slice.call(arguments, 2)
-
-  console.log.apply(console, [spaces + arg1].concat(args))
+  return (
+    { fail   : true
+    , value  : [ message ].concat(val.value)
+    , tokens : val.tokens
+    })
 }
 
-// Helper functions
-function isRegExp(o) {
-  return o != null && typeof o == 'object' && o instanceof RegExp
-}
+function isSuccess(val) { return  !val.fail }
+function isFail(val)    { return !!val.fail }
 
-//-- Parser ---------------------------------------------------------
-var Parser = exports.Parser = function() {
-  this.rules    = {}
-  this.allRules = []
-}
+//-- Parser parts (rule creators) -----------------------------------
+var Rule = {
+  //-- Higher-order rules -------------------------------------------
+  /**
+   * Matches any of the given rules, and returns the first match found.
+   */
+  any: function(/*...rules */) {
+    var rules = Array.prototype.slice.call(arguments, 0)
 
-// Parser#add -- adds rules to the ruleset given by the ruleset name.
-Parser.prototype.add = function(name/*, ...rules*/) {
-  var self  = this
-    , rules = Array.prototype.slice.call(arguments, 1)
+    return function any(tokens) {
+      for (var i=0; i<rules.length; i++) {
+        var res    = rules[i](tokens)
+          , length = isSuccess(res) && res[0]
 
-  if (!this.rules[name]) this.rules[name] = []
+        if (isSuccess(res)) { return res }
+      }
 
-  rules.forEach(function(tokens) {
-    var newRule = {
-      name   : name,
-      tokens : tokens,
+      // None of the rules matched; fail.
+      return fail(res, "any", tokens)
+    }
+  },
 
-      toString: function() {
-        return util.format("%s ::= %s", this.name, formatTokens(this.tokens))
+  /**
+   * Matches a sequence of rules so that they're mapped on a sequence of tokens.
+   */
+  sequence: function(/*...rules*/) {
+    var rules = Array.prototype.slice.call(arguments, 0)
 
-        function formatTokens(arr) {
-          return arr.map(function(o) {
-            return typeof o == 'string' ? '"' + o + '"'
-                 : Array.isArray(o)     ? o[0]
-                 : /* else */             "???"
-          }).join(" ")
-        }
+    return function sequence(tokens) {
+      var offset       = 0
+        , resultTokens = []
+
+      for (var i=0; i<rules.length; i++) {
+        var rule = rules[i]
+
+        var res     = rule(tokens.slice(offset))
+          , length  = res.slice && res[0]
+          , mtokens = res.slice && res.slice(1)
+
+        // If any of the rules fail, then the entire sequence fails
+        if (isFail(res)) { return fail(res, "sequence") }
+
+        Array.prototype.push.apply(resultTokens, mtokens)
+        offset += length
+      }
+
+      return [ offset ].concat(resultTokens)
+    }
+  },
+
+  //-- Second-order rules -------------------------------------------
+  /**
+   * Matches a given rule zero or more times, greedily.
+   */
+  kleene: function(rule) {
+    return function kleene(tokens) {
+      var result = []
+        , tmp
+
+      for (var offset=0; matches(); offset += tmp[0]) {
+        Array.prototype.push.apply(result, tmp.slice(1))
+      }
+
+      return [ offset ].concat(result)
+
+      function matches() {
+        return isSuccess(tmp = rule(tokens.slice(offset)))
       }
     }
+  },
 
-    self.rules[name].push(newRule)
-    self.allRules.push(newRule)
-  })
-}
+  /**
+   * Matches a given rule zero or one time, greedily.
+   */
+  optional: function(rule) {
+    return function optional(tokens) {
+      var res = rule(tokens)
 
-// FIXME: Remove
-Parser.prototype.prepare = function() { }
-
-// Parser#parse helpers
-// FIXME: Won't be needed I think.
-function matchRule(rtoken, token) {
-  if (token == null) return false
-
-  switch (typeof rtoken) {
-    case 'undefined': return false
-    case 'string': return token.value == rtoken
-    case 'object':
-      if (Array.isArray(rtoken)) {
-        return token.name == rtoken[0]
-      } else if (isRegExp(rtoken)) {
-        return rtoken.test(token.value)
-      }
-  }
-
-  throw new Error(util.format("Unsupported rule token type: %s: %s",
-                              (typeof rtoken), rtoken))
-}
-
-// FIXME: Won't be needed I think.
-function getRuleFilter(token, index) {
-  return function(rule) {
-    return matchRule(rule.tokens[index], token)
-  }
-}
-
-// Creates a new node (nonterminal)
-function createNode(rule, tokens) {
-  if (rule.tokens.length != tokens.length) {
-    throw new Error(util.format(
-        "createNode: length mismatch: #rule is %d tokens, #tokens is %d",
-        rule.tokens.length, tokens.length))
-  }
-
-  var tmp       = partitionChildrenAndTerminals(tokens)
-    , children  = tmp[0]
-    , terminals = tmp[1]
-
-  return {
-    type      : 'node',
-    name      : rule.name,
-    children  : children,
-    terminals : terminals,
-
-    toString: function() {
-      return util.format("{%s: %s}", this.name, this.children.join(" "))
-    }
-  }
-
-  function partitionChildrenAndTerminals(tokens) {
-    var children  = []
-      , terminals = []
-
-    rule.tokens.forEach(function(rtoken, idx) {
-      if (typeof rtoken == 'string') {
-        terminals.push(tokens[idx])
+      if (isSuccess(res)) {
+        return res
       } else {
-        children.push(tokens[idx])
+        return [ 0 ]
       }
-    })
+    }
+  },
 
-    return [ children, terminals ]
-  }
-}
+  /**
+   * Applies a rule but ignores the result.
+   */
+  ignore: function(rule) {
+    return function ignore(tokens) {
+      var res = rule(tokens)
 
-var debugIndentation = 0
-function debugLog(indentation, arg1/*, ...args*/) {
-  var spaces = Array(debugIndentation + indentation + 1).join(" ")
-    , args   = Array.prototype.slice.call(arguments, 2)
+      if (isSuccess(res)) {
+        var length = res[0]
+        return [ length ]
 
-  console.log.apply(console, [spaces + arg1].concat(args))
-}
+      } else {
+        // Rule didn't match; forward this fact to the caller.
+        return fail(res, "ignore")
+      }
+    }
+  },
 
-// Partitions an array of rules into those that matches the end of the tokens,
-// those that might match in the future if given more tokens, and those that
-// won't match even if given more tokens (those that have failed).
-/*
-function partitionRules(tokens, rules) {
-  var matches = []
-    , future  = []
-    , failed  = []
+  // (Zero-width assertions)
+  /**
+   * Asserts that a given rule matches, without consuming any input.
+   */
+  and: function(rule) {
+    return function and(tokens) {
+      var res = rule(tokens)
 
-  var lastToken = tokens.slice(-1)[0]
-  rules.forEach(function(rule) {
-    /*
-    var offset           = Math.max(0, tokens.length - rule.tokens.length)
-      , relevantTokens   = tokens.slice(offset)
-      , relevantRulePart = rule.tokens.slice(0, relevantTokens.length)
-      , ruleMatches      = relevantRulePart.every(equalsToken)
-    * /
+      if (isSuccess(res)) {
+        return [ 0 ]
+      } else {
+        return fail(res, "and")
+      }
+    }
+  },
 
-    var firstRuleToken = rule.tokens[0]
-      , ruleMatches    = matchRule(firstRuleToken, lastToken)
+  /**
+   * Asserts that a given rule does not match, without consuming any input.
+   */
+  not: function(rule) {
+    return function not(tokens) {
+      var res = rule(tokens)
 
-    var target = !ruleMatches                       ? failed
-               : tokens.length < rule.tokens.length ? future
-               : /* tokens.length >= ... * /           matches
+      if (isFail(res)) {
+        return [ 0 ]
+      } else {
+        return fail(null, "not", tokens)
+      }
+    }
+  },
 
-    var targetS = !ruleMatches                       ? 'failed'
-                : tokens.length < rule.tokens.length ? 'future'
-                : /* tokens.length >= ... * /           'matches'
-    console.log("     %s :: %s  ==> %s", simple(tokens), rule, targetS)
+  //-- Primitive rules ----------------------------------------------
+  /**
+   * Matches a given terminal, and returns it as a string literal.
+   */
+  terminal: function(required) {
+    var choices = Array.prototype.slice.call(arguments)
 
-    function simple(tokens) {
-      return tokens.map(function(x) {return x.name}).join(" ")
+    // Allow `terminal(c1, c2, c3, ...)` to be equivalent to
+    // `any(terminal(c1), terminal(c2), terminal(c3), ...)`.
+    if (choices.length > 1) {
+      return Rule.any.apply(null, choices.map(terminalify))
     }
 
-    target.push(rule)
+    // The "actual" terminal parser
+    return function terminal(tokens) {
+      var leading = tokens.slice(0, required.length)//.join("")
 
-    function equalsToken(rtoken, idx) {
-      return matchRule(rtoken, relevantTokens[idx])
-    }
-  })
+      if (leading == required) {
+        return [ required.length, leading ]
+      }
 
-  return [ matches, future, failed ]
-}
-*/
-
-// Matches an array of rules on the end of an array of tokens, and returns an
-// array of rules + how much of the rule that matches the end of the tokens.
-// E.g. [ rule, 1 ] if only the last token matches the first rule token.
-function matchRuleTails(tokens, rules) {
-  return rules.map(function(rule) {
-    return [ rule, compareRule(rule, tokens) ]
-  })
-
-  return [ matches, future, failed ]
-
-  function compareRule(rule, tokens) {
-    if (rule.tokens.length > tokens.length) {
-      var rtokensLeading = rule.tokens.slice(0, tokens.length)
-        , res            = arrayEq(tokens, rtokensLeading, matchRuleFlipped)
-
-      return res ? tokens.length : 0
-    } else {
-      return compareOverlap(tokens, rule.tokens, matchRuleFlipped)
-    }
-  }
-
-  function matchRuleFlipped(token, rule) {
-    return matchRule(rule, token)
-  }
-
-  function compareOverlap(xs, ys, isEqual) {
-    var maxval = Math.min(xs.length, ys.length)
-
-    for (var i=maxval; i>0; i--) {
-      var xtail = xs.slice(xs.length - i)
-        , ylead = ys.slice(0, i)
-
-      if (arrayEq(xtail, ylead, isEqual)) { return i }
-    }
-    return 0
-  }
-
-  function arrayEq(xs, ys, isEqual) {
-    return xs.every(function(x, i) {
-      return isEqual(x, ys[i])
-    })
-  }
-}
-
-//-- Parser#parse ---------------------------------------------------
-// parses a token stream into a parse tree.
-Parser.prototype.parse = function(tokenStream, verbosity) {
-  VERBOSITY = (verbosity || 0)
-
-  var self     = this
-    , sessions = [ [] ]
-
-    , result   = null
-
-  for (var token; (token = tokenStream.next()) && !result;) {
-    // TODO: Preserve ignored tokens in the resulting tree.
-    if (token.ignore) {
-      continue
+      // Didn't match; fail.
+      return fail(null, "terminal: " + required, tokens)
     }
 
-    console.log()
-    console.log(" o Read token %s", token)
+    function terminalify(x) {
+      return Rule.terminal(x)
+    }
+  },
 
-    // Add the newly read token to all sessions (shift)
-    sessions.forEach(function(sess) {
-      sess.push(token)
-    })
+  /**
+   * Matches a given regex, and returns it as a terminal.
+   */
+  regex: function(pattern) {
+    return function regex(tokens) {
+      var str = keepWhile(tokens, isString)//.join("")
+        , res = pattern.exec(str)
 
-    var newSessions  = []
-      , keptSessions = []
+      if (res) {
+        // Matched!
+        var match = res[0]
+        return [ match.length, match ]
 
-    // Apply rules until there are no more rules to apply (reduce)
-    while (sessions.length > 0 && !result) {
-      sessions.forEach(function(sess) {
-        var keep = false
-  //      console.log("   Session: %s", sess.join(" "))
+      } else {
+        // No match
+        return fail(null, "regex: " + pattern, tokens)
+      }
+    }
 
-        matchRuleTails(sess, self.allRules).forEach(function(tmp) {
-          var rule         = tmp[0]
-            , similarCount = tmp[1]
-            , matched      = (similarCount == rule.tokens.length)
+    function isString(str) { return typeof str == 'string' }
 
-          if (matched) {
-            newSessions.push(applyRule(sess, rule))
-   //         console.log("   matched: %s", rule)
-          } else if (similarCount > 0) {
-            // Indicates potential for longer rules to apply
-            keep = true
-          }
-        })
+    function keepWhile(arr, pred) {
+      var res = []
 
-        if (keep) {
-  //        console.log("   keep!")
-          keptSessions.push(sess)
+      for (var i=0; i<arr.length && pred(arr[i]); i++) {
+        res.push(arr[i])
+      }
+
+      return res
+    }
+  },
+
+  /**
+   * Matches a single (terminal) character in a given range.
+   */
+  charRange: function(start, end) {
+    return function charRange(tokens) {
+      var tk = tokens[0]
+
+      if (tokens.length == 0) {
+        return fail(null, "charRange: [" + start + "-" + end + "]", tokens)
+    }
+
+      if (start <= tk && tk <= end) {
+        return [ 1, tk ]
+      }
+
+      // Didn't match; fail.
+      return fail(null, "charRange: [" + start + "-" + end + "]", tokens)
+    }
+  },
+
+  //-- Internal rules -----------------------------------------------
+  /**
+   * Wraps the result of a rule in a nonterminal with the specified name.
+   */
+  name: function(name, rule) {
+    return function nameFun(tokens) {
+      var res = rule(tokens)
+
+      if (isSuccess(res)) {
+        // Wrap the result in a nonterminal token.
+        var length      = res[0]
+          , mtokens     = res.slice(1)
+          , nonterminal = [ name ].concat(mtokens)
+
+        return [ length, nonterminal ]
+
+      } else {
+        // Rule didn't match; forward this fact to the caller.
+        return fail(res, "name: " + name)
+      }
+    }
+  },
+
+  /**
+   * Asserts that the given rule consumes all input; forwards the result if so,
+   * fails otherwise.
+   */
+  consumesAll: function(rule) {
+    return function consumesAll(tokens) {
+      var res = rule(tokens)
+
+      if (isSuccess(res)) {
+        var length  = res[0]
+
+        if (length == tokens.length) {
+          return res
+
+        } else {
+          return fail(null, "consumesAll: trailing characters", tokens.slice(length))
         }
 
-        // Check if we're done
-        if (sess.length == 1 && sess[0].name == '$top') {
-          // "return" the final result
-          result = sess[0]
-        }
-      })
-
-      sessions    = newSessions
-      newSessions = []
+      } else {
+        return fail(res, "consumesAll")
+      }
     }
-    Array.prototype.push.apply(sessions, keptSessions)
-
-    // Returns a new session which is `session` with the rule `rule` applied to
-    // the tokens on the top of the stack.
-    function applyRule(sess, rule) {
-      var newSess         = sess.slice() // copy sess
-        , tokensToApplyOn = newSess.splice(newSess.length - rule.tokens.length)
-        , newNode         = createNode(rule, tokensToApplyOn)
-
-      newSess.push(newNode)
-      return newSess
-    }
-  }
-
-  // Check if we exited expectedly (with a result to return), or if we reached
-  // EOF.
-  if (result) {
-    return result
-  } else {
-    throw new Error("Reached end of stream while parsing.")
   }
 }
 
-/*
-          function printTree(spaces, node) {
-            if (node.type == 'token') {
-              console.log(spaces + node)
-            } else {
-              console.log(spaces + node.name)
-              node.children.forEach(printTree.bind(null, spaces + "  "))
-            }
-          }
-*/
+exports.Rule      = Rule
+exports.fail      = fail
+exports.isFail    = isFail
+exports.isSuccess = isSuccess
+

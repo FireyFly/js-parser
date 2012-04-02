@@ -1,0 +1,37 @@
+
+# Letters
+ *C_letter      <- [A-Z] / [a-z] / "_" / "-" / "$"
+ *C_eol         <- "\n"
+ *C_wspace      <- " " / "\t" / "\r"
+ *C_any         <- .
+
+# Rules
+ *S_            <- %(C_wspace*)
+ *S_plus        <- %((C_eol / C_wspace)*)
+ *line_sep      <- S_ %C_eol S_plus
+
+  identifier    <- C_letter C_letter*
+
+  lefthand      <- "*"? S_ identifier
+
+  nonterminal   <- identifier !"<-"
+  charrange     <- %"[" C_any %"-" C_any %"]"
+  terminal      <- %'"' C_any (!'"' C_any)* %'"' / %"'" C_any (!"'" C_any)* %"'"
+  any-character <- %"."
+
+ *r_primitive   <- nonterminal / charrange / terminal / any-character / %"(" r_any %")"
+
+  r_repeat      <- r_primitive ("*" / "?")
+  r_prefix      <- ("!" / "&" / "%") r_primitive
+
+ *r_secondary   <- r_repeat / r_prefix / r_primitive
+
+  r_sequence    <- r_secondary (S_ r_secondary)*
+  r_any         <- r_sequence (S_ %"/" S_ r_sequence)*
+
+  rule          <- lefthand S_ %"<-" S_ r_any
+  comment       <- "#" (!line_sep .)*
+
+ *line          <- %comment / rule
+ *lines         <- line (line_sep line)*
+  $top          <- S_plus lines S_plus
