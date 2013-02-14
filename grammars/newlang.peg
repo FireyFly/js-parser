@@ -1,0 +1,44 @@
+
+#### Rules
+  $top            <- WS Statements WS
+
+ *Statements      <- Statement WS_ (%("\n" / ";") WS Statement)*
+ *Statement       <- VarDeclarationStatement / AssignmentStatement / ExpressionStatement
+
+  VarDeclarationStatement  <- %"var" WS VarDeclarationStatement_ (WS %"," WS VarDeclarationStatement_)*
+  VarDeclarationStatement_ <- Identifier (WS %"=" WS Value)?
+
+  AssignmentStatement <- LeftHand WS %"=" WS Value
+  ExpressionStatement <- Value
+
+  Identifier      <- !ReservedWord Identifier_ (Identifier_ / [0-9])*
+ *Identifier_     <- ([A-Z] / [a-z] / "$" / "_")
+
+ *LeftHand        <- PropertyAccessor / Identifier
+
+  PropertyAccessor <- Value %"." Identifier  /  Value %"[" Value %"]"
+
+  Value           <- Literal / Identifier
+
+# Literals
+ *Literal         <- StringLiteral / NumberLiteral / TableLiteral / FunctionLiteral
+
+  StringLiteral   <- %'"' (!'"' .)* %'"'
+
+  NumberLiteral   <- NumberLiteral_ ("." NumberLiteral_)?
+ *NumberLiteral_  <- [0-9] [0-9]*
+
+  TableLiteral    <- %"{" WS (TableLiteral_ (WS %"," WS TableLiteral_)*)? WS %"}"
+  TableLiteral_   <- (TableLiteralKey WS %"=" WS)? Value
+  TableLiteralKey <- Identifier / %"[" WS Value WS %"]"
+
+  FunctionLiteral <- %"function" WS FunctionParameterList WS FunctionBody
+  FunctionParameterList <- %"(" WS (Identifier (WS %"," WS Identifier)*)? WS %")"
+ *FunctionBody    <- %"{" WS Statements? WS %"}"
+
+# Reserved words
+  ReservedWord    <- "function"
+
+#### Characters
+ *WS  <- %((" " / "\t" / "\r" / "\n")*)
+ *WS_ <- %((" " / "\t" / "\r")*)

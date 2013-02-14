@@ -1,0 +1,5 @@
+
+# Matches the language `a^n b^n c^n`.
+ *A       <- "a" A? "b"
+ *B       <- "b" B? "c"
+  $top    <- &(A "c") "a" "a"* B !("a" / "b" / "c")
