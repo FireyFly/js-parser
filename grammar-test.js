@@ -11,8 +11,9 @@ var Rule = parser.Rule
 
 function readData() {
   if (process.argv.length != 4) {
-    var file = process.argv.slice(0, 2).join(" ")
-    process.stderr.write("Usage: " + file + " <grammar-file> <input-file>")
+    var file = process.argv.slice(0, 2).join(" ").match(/[^\/]+$/)
+    process.stderr.write("Usage: node " + file + " <grammar-file> <input-file>\n")
+    process.stderr.write("  args were: " + process.argv.slice(2).join(" ") + "\n")
     process.exit(1)
   }
 
@@ -106,8 +107,21 @@ function toSexprs(indent, tree) {
   }
 
   function trimLeft(str) { return str.replace(/^\s+/, "") }
-  function quotes(str)   { return "'" + str + "'"         }
   function isString(any) { return typeof any == 'string'  }
+
+  function quotes(str)   {
+    return '"' + str.split("").map(escape).join("") + '"'
+
+    function escape(chr) {
+      return chr == "\n"?  "\\n"
+           : chr == "\t"?  "\\t"
+           : chr  < " "?   "\\x" + pad2(chr.charCodeAt().toString(16))
+           : chr == "\\"?  "\\\\"
+           : /*else*/      chr
+
+      function pad2(str) { return (str.length < 2 ? "0" : "") + str }
+    }
+  }
 }
 
 // Traverses a tree in postorder (depth-first left-to-right)

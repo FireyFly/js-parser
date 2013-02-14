@@ -5,15 +5,6 @@ var util   = require('util')
 var Rule   = parser.Rule
 
 //-- Parser grammar parser ------------------------------------------
-// Tokens/character types
-var T_letter = Rule.any(Rule.charRange('a', 'z'), Rule.charRange('A', 'Z'))
-  , T_arrow  = Rule.terminal('<-')
-  , T_eol    = Rule.terminal("\n")
-  , T_space  = Rule.terminal(" ", "\t", "\r")
-
-  , T_quote  = Rule.terminal('"')
-  , T_any    = Rule.regex(/^./)
-
 // Rules
 var R = {}
 function nonterminal(str) {
@@ -27,19 +18,17 @@ R.C_letter      = Rule.any(
                     Rule.charRange("A", "Z"),
                     Rule.charRange("a", "z"),
                     Rule.terminal("_", "-", "$"))
-R.C_eol         = Rule.terminal("\n")
-R.C_wspace      = Rule.terminal(" ", "\t", "\r")
 R.C_any         = Rule.regex(/^./)
 
 //-- Rules
-R.S_            = Rule.ignore(Rule.kleene(R.C_wspace))
-R.S_plus        = Rule.ignore(Rule.kleene(Rule.any(R.C_eol, R.C_wspace)))
-R.line_sep      = Rule.ignore(
-                    Rule.sequence(
-                      R.S_,
-                      R.C_eol,
-                      R.S_plus))
+R.WS            = Rule.ignore(
+                    Rule.kleene(
+                      Rule.terminal(" ", "\t", "\r", "\n")))
+R.WS_           = Rule.ignore(
+                    Rule.kleene(
+                      Rule.terminal(" ", "\t", "\r")))
 
+// Various
 R.identifier    = Rule.name('identifier',
                     Rule.sequence(
                       R.C_letter,
@@ -48,18 +37,13 @@ R.identifier    = Rule.name('identifier',
 R.lefthand      = Rule.name('lefthand',
                     Rule.sequence(
                       Rule.optional(Rule.terminal("*")),
-                      R.S_,
+                      R.WS_,
                       R.identifier))
 
-// primitives
-//R.nonterminal   = Rule.name('nonterminal',
-//                    Rule.sequence(
-//                      R.C_letter,
-//                      Rule.kleene(R.C_letter)))
-R.nonterminal   = Rule.name('nonterminal',
-                    Rule.sequence(
-                      R.identifier,
-                      Rule.not(Rule.terminal("<-"))))
+R.line_sep      = Rule.ignore(Rule.terminal("\n"))
+
+// first-level
+R.nonterminal   = Rule.name('nonterminal', R.identifier)
 
 R.charrange     = Rule.name('charrange',
                     Rule.sequence(
@@ -92,32 +76,17 @@ R.terminal      = Rule.name('terminal',
 R.anyCharacter  = Rule.name('any-character',
                     Rule.ignore(Rule.terminal(".")))
 
-R.endOfInput    = Rule.name('end-of-input',
-                    Rule.ignore(Rule.terminal("$")))
-
-R.regex         = Rule.name('regex',
-                    Rule.sequence(
-                      Rule.ignore(Rule.terminal("/")),
-                      R.C_any,
-                      Rule.kleene(
-                        Rule.sequence(
-                          Rule.not(Rule.terminal("/")),
-                          R.C_any)),
-                      Rule.ignore(Rule.terminal("/"))))
-
 R.r_primitive   = Rule.any(
                     R.nonterminal,
                     R.charrange,
                     R.terminal,
-//                    R.regex,
                     R.anyCharacter,
-                    R.endOfInput,
                     Rule.sequence(
                       Rule.ignore(Rule.terminal("(")),
                       nonterminal("r_any"),
                       Rule.ignore(Rule.terminal(")"))))
 
-// second-order
+// second-level
 R.r_repeat      = Rule.name('r_repeat',
                     Rule.sequence(
                       R.r_primitive,
@@ -133,13 +102,13 @@ R.r_prefix      = Rule.name('r_prefix',
 
 R.r_secondary   = Rule.any(R.r_repeat, R.r_prefix, R.r_primitive)
 
-// higher-order
+// third-level
 R.r_sequence    = Rule.name('r_sequence',
                     Rule.sequence(
                       R.r_secondary,
                       Rule.kleene(
                         Rule.sequence(
-                          R.S_,
+                          R.WS_,
                           R.r_secondary))))
 
 R.r_any         = Rule.name('r_any',
@@ -147,28 +116,27 @@ R.r_any         = Rule.name('r_any',
                       R.r_sequence,
                       Rule.kleene(
                         Rule.sequence(
-                          R.S_,
+                          R.WS,
                           Rule.ignore(Rule.terminal("/")),
-                          R.S_,
+                          R.WS,
                           R.r_sequence))))
 
 // actual body
 R.rule          = Rule.name('rule',
                     Rule.sequence(
                       R.lefthand,
-                      R.S_,
+                      R.WS_,
                       Rule.ignore(Rule.terminal("<-")),
-                      R.S_,
+                      R.WS_,
                       R.r_any))
 
 R.comment       = Rule.name('comment',
                     Rule.sequence(
-                      R.S_,
                       Rule.terminal("#"),
                       Rule.kleene(
                         Rule.sequence(
-                          Rule.not(R.line_sep),
-                          T_any))))
+                          Rule.not(Rule.terminal("\n")),
+                          R.C_any))))
 
 R.line          = Rule.any(
                     Rule.ignore(R.comment),
@@ -176,17 +144,19 @@ R.line          = Rule.any(
 
 R.lines         = Rule.sequence(
                     R.line,
+                    R.WS_,
                     Rule.kleene(
                       Rule.sequence(
                         R.line_sep,
+                        R.WS,
                         R.line)))
 
 var $top        = Rule.name('$top',
                     Rule.consumesAll(
                       Rule.sequence(
-                        R.S_plus,
+                        R.WS,
                         R.lines,
-                        R.S_plus)))
+                        R.WS)))
 //*/
 
 

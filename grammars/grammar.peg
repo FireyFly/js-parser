@@ -1,37 +1,41 @@
 
-# Letters
- *C_letter      <- [A-Z] / [a-z] / "_" / "-" / "$"
- *C_eol         <- "\n"
- *C_wspace      <- " " / "\t" / "\r"
- *C_any         <- .
-
 # Rules
- *S_            <- %(C_wspace*)
- *S_plus        <- %((C_eol / C_wspace)*)
- *line_sep      <- S_ %C_eol S_plus
+  $top          <- WS lines WS
+ *lines         <- line WS_ (line_sep WS line)*
+ *line          <- %comment / rule
 
-  identifier    <- C_letter C_letter*
+  comment       <- "#" (!"\n" .)*
+  rule          <- lefthand WS_ %"<-" WS_ r_any
 
-  lefthand      <- "*"? S_ identifier
+# third-level
+  r_any         <- r_sequence (WS %"/" WS r_sequence)*
+  r_sequence    <- r_secondary (WS_ r_secondary)*
 
-  nonterminal   <- identifier !"<-"
-  charrange     <- %"[" C_any %"-" C_any %"]"
-  terminal      <- %'"' C_any (!'"' C_any)* %'"' / %"'" C_any (!"'" C_any)* %"'"
-  any-character <- %"."
-
- *r_primitive   <- nonterminal / charrange / terminal / any-character / %"(" r_any %")"
-
+# second-level
   r_repeat      <- r_primitive ("*" / "?")
   r_prefix      <- ("!" / "&" / "%") r_primitive
 
  *r_secondary   <- r_repeat / r_prefix / r_primitive
 
-  r_sequence    <- r_secondary (S_ r_secondary)*
-  r_any         <- r_sequence (S_ %"/" S_ r_sequence)*
+# first-level
+  nonterminal   <- identifier
+  charrange     <- %"[" C_any %"-" C_any %"]"
+  terminal      <- %'"' C_any (!'"' C_any)* %'"'
+                 / %"'" C_any (!"'" C_any)* %"'"
+  any-character <- %"."
 
-  rule          <- lefthand S_ %"<-" S_ r_any
-  comment       <- "#" (!line_sep .)*
+ *r_primitive   <- nonterminal / charrange / terminal / any-character
+                 / %"(" r_any %")"
 
- *line          <- %comment / rule
- *lines         <- line (line_sep line)*
-  $top          <- S_plus lines S_plus
+# Various
+  identifier    <- C_letter C_letter*
+  lefthand      <- "*"? WS_ identifier
+
+ *line_sep      <- %"\n"
+# *line_sep      <- %((WS_ C_eol WS_)*)
+ *WS            <- %((" " / "\t" / "\r" / "\n")*)
+ *WS_           <- %((" " / "\t" / "\r")*)
+
+# Characters
+ *C_letter      <- [A-Z] / [a-z] / "_" / "-" / "$"
+ *C_any         <- .

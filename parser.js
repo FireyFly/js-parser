@@ -2,17 +2,19 @@
 //-- Utility functions ----------------------------------------------
 function fail(val, message, tokens) {
   // Default to empty failure value
-  (val == null) && (val = { fail:true, value:[], tokens:tokens })
+  if (val == null) {
+    val = { fail   : true
+          , value  : []
+          , tokens : tokens }
+  }
 
-  return (
-    { fail   : true
-    , value  : [ message ].concat(val.value)
-    , tokens : val.tokens
-    })
+  return { fail   : true
+         , value  : [ message ].concat(val.value)
+         , tokens : val.tokens }
 }
 
-function isSuccess(val) { return  !val.fail }
-function isFail(val)    { return !!val.fail }
+function isSuccess(val) { return !isFail(val)      }
+function isFail(val)    { return Boolean(val.fail) }
 
 //-- Parser parts (rule creators) -----------------------------------
 var Rule = {
@@ -37,7 +39,7 @@ var Rule = {
   },
 
   /**
-   * Matches a sequence of rules so that they're mapped on a sequence of tokens.
+   * Matches a sequence of rules on the tokens in sequence.
    */
   sequence: function(/*...rules*/) {
     var rules = Array.prototype.slice.call(arguments, 0)
@@ -283,4 +285,3 @@ exports.Rule      = Rule
 exports.fail      = fail
 exports.isFail    = isFail
 exports.isSuccess = isSuccess
-
